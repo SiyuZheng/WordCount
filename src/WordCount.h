@@ -14,20 +14,16 @@
 #define NUM_INPUT 1000000
 #define NUM_OUTPUT 1
 #define NUM_KEYS 1
-void cudaMapReduce(char* input, int *output);
 
-#define gpuErrChk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(
-	cudaError_t code,
-	const char *file,
-	int line,
-	bool abort = true)
-{
-	if (code != cudaSuccess) {
-		fprintf(stderr, "GPUassert: %s %s %d\n",
-			cudaGetErrorString(code), file, line);
-		exit(code);
+void checkCUDAErrorFn(const char *msg, const char *file, int line) {
+	cudaError_t err = cudaGetLastError();
+	if (cudaSuccess == err) {
+		return;
 	}
+
+	fprintf(stderr, "CUDA error");
+	fprintf(stderr, ": %s: %s\n", msg, cudaGetErrorString(err));
+	exit(err);
 }
 
 struct KeyValuePair {

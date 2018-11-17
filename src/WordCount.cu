@@ -11,6 +11,9 @@
 #include <thrust/sort.h>
 #include "device_launch_parameters.h"
 
+#define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
+
 __device__ void mapper(char *input, KeyValuePair *pairs) 
 {
     // We set the key of each input to 0.
@@ -22,19 +25,13 @@ __device__ void mapper(char *input, KeyValuePair *pairs)
     if (ch == ' '||ch == '\n') 
 	{ 
 		pairs->value = 1;
-	} 
-     
+	}   
 	else 
 	{
         pairs->value = 0;
     }
 }
 
-/*
- * Reducing function to be run for each set of key/value pairs that share the
- * same key. len key/value pairs may be read from memory, and the output
- * generated from these pairs must be stored at output in memory.
- */
 __device__ void reducer(KeyValuePair *pairs, int len, int* output) 
 {
     int wordCount = 0;
@@ -45,20 +42,19 @@ __device__ void reducer(KeyValuePair *pairs, int len, int* output)
             wordCount++;
         }
     }
-    // After calculating number of words in an input file, we will move the wordCount into the output variable.
     *output = wordCount;
 }
 
 void cudaMap(char *input, KeyValuePair *pairs) {
 	mapKernel <<< GRID_SIZE, BLOCK_SIZE >>>(input, pairs);
-	gpuErrChk(cudaPeekAtLastError());
-	gpuErrChk(cudaDeviceSynchronize());
+	checkCUDAError("Map kernel failed!");
+	cudaDeviceSynchronize();
 }
 
 void cudaReduce(KeyValuePair *pairs, int *output) {
 	reduceKernel << <GRID_SIZE, BLOCK_SIZE >> >(pairs, output);
-	gpuErrChk(cudaPeekAtLastError());
-	gpuErrChk(cudaDeviceSynchronize());
+	checkCUDAError("Reduce kernel failed!");
+	cudaDeviceSynchronize();
 }
 
 __global__ void mapKernel(char *input, KeyValuePair *pairs) {
