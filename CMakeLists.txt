@@ -24,7 +24,8 @@ endif()
 include_directories(.)
 
 cuda_add_executable(${CMAKE_PROJECT_NAME}
-    "src/main.cpp"
+    "src/WordCount.cu"
+     "src/WordCount.h"
     )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
