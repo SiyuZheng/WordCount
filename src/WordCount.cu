@@ -14,68 +14,52 @@
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 
-__device__ void mapper(char *input, KeyValuePair *pairs) 
-{
-    // We set the key of each input to 0.
-    pairs->key = 0;
-    char ch = *input;	
-	//pairs->key = ch;
-    // We check if the input array has a space or a new line and set the value accordingly.
-	//If so this will count the number of words in a file.
-    if (ch == ' '||ch == '\n') 
-	{ 
-		pairs->value = 1;
-	}   
-	else 
-	{
-        pairs->value = 0;
-    }
-}
-
-__device__ void reducer(KeyValuePair *pairs, int len, int* output) 
-{
-    int wordCount = 0;
-    for (KeyValuePair *pair = pairs; pair != pairs + len; pair++) 
-	{
-        if(pair->value == 1) 
-		{
-            wordCount++;
-        }
-    }
-    *output = wordCount;
-}
-
 void cudaMap(char *input, KeyValuePair *pairs) {
-	mapKernel <<< GRID_SIZE, BLOCK_SIZE >>>(input, pairs);
+	kernMap << < GRID_SIZE, BLOCK_SIZE >> >(input, pairs);
 	checkCUDAError("Map kernel failed!");
 	cudaDeviceSynchronize();
 }
 
-void cudaReduce(KeyValuePair *pairs, int *output) {
-	reduceKernel << <GRID_SIZE, BLOCK_SIZE >> >(pairs, output);
+__global__ void kernMap(char *idata, KeyValuePair *pairs) {
+	int ind = blockIdx.x * blockDim.x + threadIdx.x;
+	int offset = blockDim.x * gridDim.x;
+	for (int i = ind; i < NUM_INPUT; i += offset) {
+		mapper(&idata[i], &pairs[i * NUM_KEYS]);
+	}
+}
+
+__device__ void mapper(char *input, KeyValuePair *pairs)
+{
+	pairs->key = 0;
+	char ch = *input;
+	if (ch == ' ' || ch == '\n')
+	{
+		pairs->value = 1;
+	}
+	else
+	{
+		pairs->value = 0;
+	}
+}
+
+
+void cudaReduce(KeyValuePair *pairs, int *odata) {
+	kernReduce << <GRID_SIZE, BLOCK_SIZE >> >(pairs, odata);
 	checkCUDAError("Reduce kernel failed!");
 	cudaDeviceSynchronize();
 }
 
-__global__ void mapKernel(char *input, KeyValuePair *pairs) {
-	for (size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-		i < NUM_INPUT;
-		i += blockDim.x * gridDim.x) {
-		mapper(&input[i], &pairs[i * NUM_KEYS]);
-	}
-}
-
-__global__ void reduceKernel(KeyValuePair *pairs, int *output) {
-	for (size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-		i < NUM_OUTPUT;
-		i += blockDim.x * gridDim.x) {
+__global__ void kernReduce(KeyValuePair *pairs, int *odata) {
+	int ind = blockIdx.x * blockDim.x + threadIdx.x;
+	int offset = blockDim.x * gridDim.x;
+	for (int i = ind; i < NUM_OUTPUT; i += offset) {
 		int startIndex = 0;
 		int count = 0;
 		int valueSize = 0;
 		int j;
 
 		for (j = 1; j < NUM_INPUT * NUM_KEYS; j++) {
-			if (keyValueCompare()(pairs[j - 1], pairs[j])) {
+			if (KVComparator()(pairs[j - 1], pairs[j])) {
 				if (count == i) {
 					// This thread has found the correct number
 					// There is a bit of warp divergence here as some threads
@@ -91,73 +75,49 @@ __global__ void reduceKernel(KeyValuePair *pairs, int *output) {
 				}
 			}
 		}
-
-		if (count < i) {
-			// This thread doesn't need to process a key. We won't get here, but
-			// this code is just there for assurance.
-			return;
-		}
-
 		valueSize = j - startIndex;
-
-		// Run the reducer
-		reducer(pairs + startIndex, valueSize, &output[i]);
+		reducer(pairs + startIndex, valueSize, &odata[i]);
 	}
 }
 
+__device__ void reducer(KeyValuePair *pairs, int len, int* odata)
+{
+	int sum = 0;
+	for (KeyValuePair *pair = pairs; pair != pairs + len; pair++)
+	{
+		sum += pair->value;
+	}
+	*odata = sum;
+}
+
 void cudaMapReduce(char* input, int *output) {
-	// Create device pointers
-	char* dev_input;
-	int* dev_output;
-	KeyValuePair *dev_pairs;
+	char* dev_idata;
+	int* dev_odata;
+	KeyValuePair *dev_intermediate;
 
-	// Determine sizes in bytes
-	size_t input_size = NUM_INPUT * sizeof(char);
-	size_t output_size = NUM_OUTPUT * sizeof(int);
-	size_t pairs_size = NUM_INPUT * NUM_KEYS * sizeof(KeyValuePair);
+	cudaMalloc(&dev_idata, NUM_INPUT * sizeof(char));
+	cudaMalloc(&dev_intermediate, NUM_INPUT * NUM_KEYS * sizeof(KeyValuePair));
+	cudaMalloc(&dev_odata, NUM_OUTPUT * sizeof(int));
 
-	// Initialize device memory (we can utilize more space by waiting to
-	// initialize the output array until we're done with the input array)
-	cudaMalloc(&dev_input, input_size);
-	cudaMalloc(&dev_pairs, pairs_size);
+	cudaMemcpy(dev_idata, input, NUM_INPUT * sizeof(char), cudaMemcpyHostToDevice);
 
-	 //Copy input data over
-	cudaMemcpy(dev_input, input, input_size, cudaMemcpyHostToDevice);
-	//cudaMemset(dev_pairs, 0, pairs_size);
+	cudaMap(dev_idata, dev_intermediate);
 
-	// Run the mapper kernel
-	cudaMap(dev_input, dev_pairs);
+	thrust::device_ptr<KeyValuePair> dev_ptr(dev_intermediate);
+	thrust::sort(dev_ptr, dev_ptr + NUM_INPUT * NUM_KEYS, KVComparator());
 
-	// Convert the pointer to device memory for the key/value pairs that is
-	// recognizable by the cuda thrust library
-	thrust::device_ptr<KeyValuePair> dev_ptr(dev_pairs);
+	cudaReduce(dev_intermediate, dev_odata);
 
-	// Sort the key/value pairs. By using the thrust library, we don't have to
-	// write this code ourselves, and it's already optimized for parallel
-	// computation
-	thrust::sort(dev_ptr, dev_ptr + NUM_INPUT * NUM_KEYS, keyValueCompare());
+	cudaMemcpy(output, dev_odata, NUM_OUTPUT * sizeof(int), cudaMemcpyDeviceToHost);
 
-	// Free GPU space for the input
-	cudaFree(dev_input);
-	// Allocate GPU space for the output
-	cudaMalloc(&dev_output, output_size);
-
-	// Run the reducer kernel
-	cudaReduce(dev_pairs, dev_output);
-
-	// Allocate space on the host for the output array and copy the data to it
-	cudaMemcpy(output, dev_output, output_size, cudaMemcpyDeviceToHost);
-
-	// Free GPU memory for the key/value pairs and output array
-	cudaFree(dev_pairs);
-	cudaFree(dev_output);
+	cudaFree(dev_idata);
+	cudaFree(dev_intermediate);
+	cudaFree(dev_odata);
 }
 
 int main(int argc, char* argv[]) {
-	size_t input_size = NUM_INPUT * sizeof(char);
-	size_t output_size = NUM_OUTPUT * sizeof(int);
-	char *input = (char *)malloc(input_size);
-	int *output = (int *)malloc(output_size);
+	char* idata = new char[NUM_INPUT];
+	int* odata = new int[NUM_OUTPUT];
 	FILE* fp;
 	fp = fopen("test.txt", "r");
 	int i = 0;
@@ -172,19 +132,18 @@ int main(int argc, char* argv[]) {
 			break;
 		}
 		i++;
-
-		input[i] = ch;
+		idata[i] = ch;
 		printf("%c", ch);
 	}
 	if (fp != NULL) {
 		fclose(fp);
 	}
-	cudaMapReduce(input, output);
-	for (size_t i = 0; i < NUM_OUTPUT; i++)
+	cudaMapReduce(idata, odata);
+	for (int i = 0; i < NUM_OUTPUT; i++)
 	{
-		printf("The total number of words in the file are: %d\n", output[i]);
+		printf("The total number of words in the file are: %d\n", odata[i]);
 	}
-	delete input;
-	delete output;
+	delete idata;
+	delete odata;
 	return 0;
 }

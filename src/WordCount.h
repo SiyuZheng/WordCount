@@ -31,7 +31,8 @@ struct KeyValuePair {
 	int value;
 };
 
-struct keyValueCompare {
+class KVComparator {
+public:
 	__host__ __device__ bool operator() (const KeyValuePair &lhs, const KeyValuePair &rhs) {
 		void *char_lhs = (unsigned char *) &(lhs.key);
 		void *char_rhs = (unsigned char *) &(rhs.key);
@@ -49,17 +50,12 @@ struct keyValueCompare {
 	}
 };
 
-__device__ void mapper(char *input, KeyValuePair *pairs);
+__device__ void mapper(char *idata, KeyValuePair *pairs);
 
+__device__ void reducer(KeyValuePair *pairs, int len, int* odata);
 
-__device__ void reducer(KeyValuePair *pairs, int len, int* output);
+__global__ void kernMap(char *idata, KeyValuePair *pairs);
 
-void cudaMap(char *input, KeyValuePair *pairs);
-
-void cudaReduce(KeyValuePair *pairs, int *output);
-
-__global__ void mapKernel(char *input, KeyValuePair *pairs);
-
-__global__ void reduceKernel(KeyValuePair *pairs, int *output);
+__global__ void kernReduce(KeyValuePair *pairs, int *odata);
 
 
