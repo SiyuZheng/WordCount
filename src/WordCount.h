@@ -34,17 +34,21 @@ struct KeyValuePair {
 
 class KVComparator {
 public:
-	__host__ __device__ bool operator() (const KeyValuePair &lhs, const KeyValuePair &rhs) {
-		void *char_lhs = (unsigned char *) &(lhs.key);
-		void *char_rhs = (unsigned char *) &(rhs.key);
-		for (int i = 0; i < sizeof(char); i++) {
-			unsigned char *p1 = (unsigned char *)char_lhs + i;
-			unsigned char *p2 = (unsigned char *)char_rhs + i;
-			if (*p1 < *p2) {
-				return true;
+	__host__ __device__ bool operator() (const KeyValuePair &kv1, const KeyValuePair &kv2) {
+		unsigned char *temp1 = (unsigned char *) &(kv1.key);
+		unsigned char *temp2 = (unsigned char *) &(kv2.key);
+		while (*temp1 && *temp2) {
+			if (*temp1 == *temp2) {
+				temp1++;
+				temp2++;
 			}
-			else if (*p1 > *p2) {
-				return false;
+			else {
+				if (*temp1 < *temp2) {
+					return false;
+				}
+				else {
+					return true;
+				}
 			}
 		}
 		return false;
