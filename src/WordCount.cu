@@ -119,7 +119,7 @@ int main(int argc, char* argv[]) {
 	char* idata = new char[NUM_INPUT];
 	int* odata = new int[NUM_OUTPUT];
 	FILE* fp;
-	fp = fopen("test.txt", "r");
+	fp = fopen("hamlet.txt", "r");
 	int i = 0;
 	int ch;
 	while (1) {
