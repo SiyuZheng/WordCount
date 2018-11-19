@@ -130,18 +130,7 @@ void CPUCounting(FILE *file)
 			while ((c = fgetc(file)) != EOF)
 			{
 				chars++;
-				if (c != ' '&& c != ','&& c != '\n')
-				{
-				}
-				else if (c == '\n')
-				{
-
-					lines++;
-					break;
-				}
-				else if (c == ' ' || c == ',' || c == '\n')
-					break;
-				else
+				if (c == ' ' || c == ',' || c == '\n')
 				{
 					break;
 				}
@@ -170,7 +159,7 @@ int main(int argc, char* argv[]) {
 
 	char* idata = new char[NUM_INPUT];
 	int* odata = new int[NUM_OUTPUT];
-	char* filename = "test.txt";
+	char* filename = "hamlet.txt";
 	FILE* fp;
 	fp = fopen(filename, "r");
 	int i = 0;
