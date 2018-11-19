@@ -1,4 +1,4 @@
-#include <cstdio>
+﻿#include <cstdio>
 #include <stdlib.h>
 #include <string>
 #include <cstdio>
@@ -13,6 +13,8 @@
 #include <sstream>
 #include <string>
 #include <fstream>
+#include <tchar.h>
+#include "string"
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -35,7 +37,7 @@ __device__ void mapper(char *input, KeyValuePair *pairs)
 {
 	pairs->key = 0;
 	char ch = *input;
-	if (ch == ' ' || ch == '\n')
+	if (ch == ' ' || ch == '\n' || ch == ',' || ch == '.')
 	{
 		pairs->value = 1;
 	}
@@ -113,6 +115,46 @@ void cudaMapReduce(char* input, int *output) {
 	cudaFree(dev_odata);
 }
 
+
+int chars = 0, words = 0, lines = 1;
+char c;
+
+void CPUCounting(FILE *file)
+{
+	while ((c = fgetc(file)) != EOF)
+	{
+		chars++;
+		if (c != ' '&& c != ',' && c != '\n')
+		{
+			words++;
+			while ((c = fgetc(file)) != EOF)
+			{
+				chars++;
+				if (c != ' '&& c != ','&& c != '\n')
+				{
+				}
+				else if (c == '\n')
+				{
+
+					lines++;
+					break;
+				}
+				else if (c == ' ' || c == ',' || c == '\n')
+					break;
+				else
+				{
+					break;
+				}
+			}
+		}
+
+		else if (c == '\n')
+		{
+			lines++;
+		}
+	}
+}
+
 int main(int argc, char* argv[]) {
 	//// read by line
 	//std::ifstream infile("hamlet.txt");
@@ -128,9 +170,9 @@ int main(int argc, char* argv[]) {
 
 	char* idata = new char[NUM_INPUT];
 	int* odata = new int[NUM_OUTPUT];
-	
+	char* filename = "test.txt";
 	FILE* fp;
-	fp = fopen("hamlet.txt", "r");
+	fp = fopen(filename, "r");
 	int i = 0;
 	int ch;
 	while (1) {
@@ -146,13 +188,26 @@ int main(int argc, char* argv[]) {
 		idata[i] = ch;
 		printf("%c", ch);
 	}
+	FILE* fp2;
+	fp2 = fopen(filename, "r");
+	CPUCounting(fp2);
 	if (fp != NULL) {
 		fclose(fp);
 	}
+	if (fp2 != NULL) {
+		fclose(fp);
+	}
 	cudaMapReduce(idata, odata);
+
+	for (int i = 0; i < argc; i++)
+	{
+		std::cout << "CPU computing: " << std::endl;
+		std::cout << "Total word count: " << words << std::endl;
+	}
 	for (int i = 0; i < NUM_OUTPUT; i++)
 	{
-		printf("Total word count %d\n", odata[i]);
+		std::cout << "GPU computing: " << std::endl;
+		std::cout << "Total word count: " << odata[i] << std::endl;
 	}
 	delete idata;
 	delete odata;
